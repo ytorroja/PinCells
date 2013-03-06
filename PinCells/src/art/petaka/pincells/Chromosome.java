@@ -68,7 +68,7 @@ public class Chromosome {
 		return res;
 	}
 
-	// Mute the gens (depth must be < 1.0)
+	// Mute the gens using perlin noise (depth must be < 1.0)
 	void mute(float depth) {
 		for (int i = 0; i < _numGens; i++) {
 			_genArray[i].mute = _genArray[i].mute + depth;

@@ -3,243 +3,347 @@ package art.petaka.pincells;
 import processing.core.*;
 
 public class Pin {
-  PApplet _parent;
-  
-  // Core Variables
-  float _x, _y;
-  float _size;
-  float _beta;
-  float _color;
-  float _range;
-  float _alfa;
-  float _colorPeriod;
-  float _talkingPeriod;
-  boolean _armed;
-  boolean _talking;
-  
-  String _sendingMsg;
-  String _receivedMsg;
-  String _lastReceivedMsg;
+	PApplet _parent;
+	
+	// Drawing variables
+	// All drawing dimmensions are normalized to 0-1 (wrt size of space or screen)
+	float _x, _y;				// Drawing x, y position
+	float _r;					// Drawing size
+	
+	// Communication variables
+	// All times are expressed in ms
 
-  int colorPeriodRangeGlb    = 50;
-  int colorPeriodMinGlb      = 10;
-  int talkingPeriodRangeGlb  = 10;
-  int talkingPeriodMinGlb    =  5;
-  int talkTimeGlb            =  6;
-  int releaseTimeGlb         = 100;
+	// Physical layer
+	float 	_beta;				// Emitting angle
+	float 	_power;				// Emitting power
+	float 	_alfa;				// Facing angle
 
-  float colorChangeSpeedGlb  = 0.01f;
-  float periodChangeSpeedGlb = 0.01f;  
-  
-  // Temporal Auxiliar Variables  
-  float _r;
-  int   _talkTime;
-  int   _releaseTime;
-  float _targetColor;
-  float _targetColorPeriod;
-  float _capacitor;
-  float _targetCapacitor;
-  
-  Pin(PApplet p) {
-	_parent  			= p;
-    _colorPeriod   		= _parent.random(0.1f, 1f);
-    _targetColorPeriod 	= _parent.random(0.1f, 1f);
-    _talkingPeriod 		= _parent.random(0.1f, 1f);
-    _color   			= _parent.random(1f);
-    _targetColor 		= _parent.random(1f);
-    _size   			= _parent.random(1f);
-    _r					= 0.01f;
-    _beta    			= _parent.random(-0.5f, 0.5f);
-    _alfa    			= _parent.random(0.3f, 0.4f); 
-    _range   			= _parent.random(0.3f, 0.4f) / 3;
-    _armed   			= false;
-    _talking 			= false;
-  }
+	// Medium Access Control Layer
+	int   	_talkTime;			// Time needed for a message to be sent
+	int   	_receivedTime;		// Time listening during reception (should be equal or bigger than talking time)
+	int   	_restTime;			// Rest time after a message has been sent before sending new messages
+	float 	_talkingPeriod;		// Talking period (between messages)
+	boolean _talking;			// Talking flag
+	boolean _receiving;			// Receiving flag
+	boolean _armed;				// Prepared to send a message (waiting for medium to be free)
+	int     _messageTypeToSend;			// Counter to select the message type to send (color, period, sync) 
+	int     _delay;				// Random delay to start talking when armed (to avoid collisions with other pins)
 
-  Pin(PApplet p, float x, float y) {
-    this(p);
-    setPos(x, y);
-  }
-  
-  void arm(String msg) {
-    if (_releaseTime <= 0) {
-    // if (!_armed) {
-      _armed     = true;
-      _releaseTime = releaseTimeGlb;
-      _sendingMsg = msg;
-    }
-  }
-  
-  void talk() {
-    if (_armed) {
-    // if (_armed && _capacitor == 0) {
-      _armed = false;
-      _talking = true;
-      _talkTime = talkTimeGlb;
-    } else {
-      if (_talkTime <= 0) {
-      // if (_capacitor == 0) {
-        _talking = false;
-        _sendingMsg = null;
-      }
-    }
-  }
-  
-  void listen(Pin _p) {
-    if (_p._talking && PApplet.dist(_p._x, _p._y, _x, _y) < _range) {
-      float b = PApplet.atan2(_y - _p._y, _x - _p._x);
-      if (b >= _p._beta - PApplet.PI/2 * _p._alfa && b <= _p._beta + PApplet.PI/2 * _p._alfa) {
-       if (_receivedMsg == null && _p._sendingMsg != null) {
-       // if (_receivedMsg == null) {
-           _receivedMsg = _p._sendingMsg;    
-          execMsg(_receivedMsg);
-        } else {
-          _receivedMsg = "ERR_RECEIVER";
-        }
-        _lastReceivedMsg = _receivedMsg;
-      }
-    }
-  }
+	// Application layer
+	String 	_toSendMsg;			// Message to send (when possible)
+	String 	_receivedMsg;		// Message received (will be sent when possible)
+	String 	_lastReceivedMsg;	// Last received message (debugging purposes) 
 
-  void execMsg(String msg) {
-    // println("-"+msg+"-");
-    String command = msg.substring(0, 3);
-    if (command.equals("COL")) {
-      _targetColor += (PApplet.parseFloat(msg.substring(4, 9)))/10000;
-      _targetColor /= 2;
-      arm(msg);
-      ((Simulation)_parent).colMsgNumberGlb++;
-    }
-    if (command.equals("PER")) {
-      // _targetColorPeriod += float(msg.substring(4, 9))/10000;
-      // _targetColorPeriod /= 2;
-      _targetColorPeriod = PApplet.parseFloat(msg.substring(4, 9))/10000f;
-      arm(msg);
-      ((Simulation)_parent).perMsgNumberGlb++;
-    }
-    if (command.equals("SYN")) {
-      int seq = PApplet.parseInt(msg.substring(4, 9));
-      _targetCapacitor = PApplet.constrain(1.0f - seq / _parent.frameRate, 0f, 1f);
-      seq++;
-      ((Simulation)_parent).maxSeqNumberGlb = (long)PApplet.max(((Simulation)_parent).maxSeqNumberGlb, seq);
-      arm("SYN_"+PApplet.nf(seq, 5, 0));
-      ((Simulation)_parent).synMsgNumberGlb++;
-    }    
-    if (command.equals("LON")) {
-    }    
-    if (command.equals("LOF")) {
-    }    
-    if (command.equals("ERR")) {
-    }    
-    _receivedMsg = null;
-  }
+	// Behavior variables
+	float 	_color;				// Color (current) normalized 0-1 
+	float 	_colorPeriod;		// Color period (current) in ms
+	float   _targetColor;		// Color to go to
+	float   _targetColorPeriod;	// Period to go to	boolean _armed;				// Prepared to talk flag
+	float   _acummulator;		// Internal accumulator
+	float   _targetAccumulator;	// For syncing
+	int     _receivedFlashCnt;	// Counter used to flash light when message received
+	
+	long  _pinTime;				// Internal pin time 
+	long  _nextMessageTime;		// Time for next message to send
 
-  void update() {
-    // Variables updates
-    // _beta += (noise(_r) - 0.5)/100;
-    // _r += _parent.random(0.1f);
-    _color = _color + (_targetColor - _color) * colorChangeSpeedGlb;
-    _colorPeriod = _colorPeriod + (_targetColorPeriod - _colorPeriod) * periodChangeSpeedGlb;
-    
-    if (_targetCapacitor > 0) {
-      if (_capacitor > 0.5) {
-        _capacitor = (1 - _capacitor) * _targetCapacitor;
-      } else {
-        _capacitor *= _targetCapacitor;
-      }
-      _targetCapacitor -= 1.0 / _parent.frameRate;
-    } else {
-      _capacitor += _colorPeriod / _parent.frameRate;
-    }
-    if (_capacitor > 1) {
-      _capacitor = 0;
-    }
-    
-    // IR action range
-    // float t = (_talkingPeriod * talkingPeriodRangeGlb + talkingPeriodMinGlb);
-    
-    /*
-    if (frameCount % t < 0.01) {
-      arm("COL_" + nf((int)(_color*10000),5,0));
-    } else if (frameCount % t < 0.05) {
-      // arm("PER_" + nf((int)(_targetColorPeriod*10000),5,0));
-      arm("SYN_"); // + nf(int(_capacitor*10000),5,0));
-    } else if (frameCount % t < 0.1) {
-      arm("PER_" + nf((int)(_targetColorPeriod*10000),5,0));
-      // arm("PER_" + nf(int(_capacitor*10000),5,0));
-    }
-    */
-    if (_capacitor == 0) {
-      if (_parent.random(1) < 0.01) {
-        arm("COL_" + PApplet.nf((int)(_color*10000), 5, 0));
-        ((Simulation)_parent).colMsgNumberGlb++;
-      }
-      if (_parent.random(1) < 0.01) {
-        arm("PER_" + PApplet.nf((int)(_targetColorPeriod*10000), 5, 0));
-        ((Simulation)_parent).perMsgNumberGlb++;
-      } 
-      if (_parent.random(1) < 0.01) {
-        arm("SYN_" + PApplet.nf((int)0 , 5, 0)); 
-        ((Simulation)_parent).synMsgNumberGlb++;
-      }
-    }
+	// Simulation variables
+	Pin		_receivingPin;     	// in that is talking to me (will be used to check collisions) 
 
-    
-    talk();
-    
-    _talkTime--;
-    _releaseTime--;
- }
-  
-  
-  void setPos(float x, float y) {
-    _x = x;
-    _y = y; 
-  }
-  
-  void setBeta(float b) {
-    _beta = b; 
-  }
-  
-  //void draw(float _x, float _y) {
-  void draw() {
-    _parent.pushStyle();
-    
-    // Color computation
-    // int p = (int)(_colorPeriod * colorPeriodRangeGlb + colorPeriodMinGlb);
-    // float alfa = 255 * sq(sq((2 * (abs((frameCount % p) - (p / 2.)) / p))));
-    float alfaChannel = 255 * PApplet.sq(PApplet.sq((1 - 2 * PApplet.abs(_capacitor - 0.5f))));
-    PVector c = ((Simulation) _parent).mapColor(PApplet.constrain(_color, 0, 1));
-    if (_talking && true) {
-      c.set(1, 1, 1);
-      alfaChannel = 200 * (1 - 2 * PApplet.abs(_talkTime - (float)talkTimeGlb / 2.0f) / talkTimeGlb);
-    }
-  
-    // Contour
-    _parent.stroke(200, 10);
-    _parent.ellipseMode(PApplet.CENTER);
+	// Initializing values
+	int 	colorPeriodRangeGlb    =    50;
+	int 	colorPeriodMinGlb      =    10;
+	int 	talkingPeriodRangeGlb  =    10;
+	int 	talkingPeriodMinGlb    =    50;
+	int 	talkTimeGlb            =     6;
+	int 	releaseTimeGlb         =   100;
+	int		waitingRandomTimeGlb   =    11;
+	int		receivedFlashLengthGlb =     2;
+	float   colorChangeSpeedGlb    = 0.01f;	// Speed to approximate to new color
+	float   periodChangeSpeedGlb   = 0.01f;	// Speed to approximate to new period 
 
-    // Light
-    _parent.fill(c.x * 255, c.y * 255, c.z * 255, alfaChannel);
-    _parent.ellipse(_parent.width * _x, _parent.height * _y, 
-    		_parent.width * 0.01f + _size / 100 , _parent.width * 0.01f + _size / 100); 
-             
-    // IR active
-    if (_talking && ((Simulation) _parent).bDrawIrGlb) {
-    	_parent.noFill();
-    	_parent.stroke(200, 100);
-    	_parent.line(_parent.width * _x, _parent.height * _y, 
-    			_parent.width * _x + _parent.width * (0.03f + _range) / 2 * PApplet.cos(_beta * PApplet.TWO_PI - PApplet.PI/2 * _alfa), 
-    			_parent.height * _y + _parent.width * (0.03f + _range) / 2 * PApplet.sin(_beta * PApplet.TWO_PI - PApplet.PI/2 * _alfa));
-    	_parent.line(_parent.width * _x, _parent.height * _y, 
-    			_parent.width * _x + _parent.width * (0.03f + _range) / 2 * PApplet.cos(_beta * PApplet.TWO_PI + PApplet.PI/2 * _alfa), 
-    			_parent.height * _y + _parent.width * (0.03f + _range) / 2 * PApplet.sin(_beta * PApplet.TWO_PI + PApplet.PI/2 * _alfa));
-    	_parent.arc(_parent.width * _x, _parent.height * _y, 
-    			_parent.width * (0.03f + _range), _parent.width * (0.03f + _range), 
-          _beta * PApplet.TWO_PI - PApplet.PI/2 * _alfa, _beta * PApplet.TWO_PI + PApplet.PI/2 * _alfa);
-    }
-    
-    _parent.popStyle();
-  }    
-      
+	Pin(PApplet p) {
+		_parent           	= p;
+		_colorPeriod      	= _parent.random(0.1f, 1f);
+		_targetColorPeriod	= _parent.random(0.1f, 1f);
+		_talkingPeriod    	= _parent.random(0.1f, 1f);
+		_color            	= _parent.random(1f);
+		_targetColor      	= _parent.random(1f);
+		_r                	= 0.01f;
+		_beta             	= _parent.random(-0.5f, 0.5f);
+		_alfa    		  	= _parent.random( 0.3f, 0.4f);
+		_power   		  	= _parent.random( 0.3f, 0.4f);
+		_armed   		  	= false;
+		_talking 		  	= false;
+		_pinTime 		  	= 0;
+		_restTime 			= 0;
+		_messageTypeToSend			= 0;
+		_receivedTime		= 0;
+		_nextMessageTime 	= (long)(_talkingPeriod * talkingPeriodRangeGlb + talkingPeriodMinGlb);
+
+	}
+
+	Pin(PApplet p, float x, float y) {
+		this(p);
+		setPos(x, y);
+	}
+
+	void arm(String msg) {
+		// if ready to arm (not inhibited during rest time)
+		if (_restTime == 0) {
+			_armed       = true;
+			_toSendMsg   = msg;
+			_delay 		 = (int)_parent.random(waitingRandomTimeGlb); // Wait a random time to access the medium
+		}
+	}
+
+	void talk() {
+		// if armed and not receiving (and random access time finished)
+		if (_armed  && _receivedTime == 0 && _delay == 0) {
+			_armed    = false;
+			_talking  = true;						// Ok, I am talking
+			_talkTime = talkTimeGlb;				// I will be talking for a while
+			((Simulation) _parent).msgSentGlb++;	// Global counter of messages sent
+		} else {
+			// if finish talking
+			if (_talkTime <= 0 && _talking) {
+				_talking   = false;
+				_toSendMsg = null;
+				_restTime = releaseTimeGlb;			// I will not talk again for a while
+			}
+		}
+	}
+
+	void listen(Pin talkingPin) {
+		// If someone is talking with enough power so I can listen it
+		if (talkingPin._talking && PApplet.dist(talkingPin._x, talkingPin._y, _x, _y) < _power) {
+			float b = PApplet.atan2(_y - talkingPin._y, _x - talkingPin._x);
+			// And I am listening in the correct angle (I see it)
+			if (b >= talkingPin._beta - PApplet.PI / 2 * talkingPin._alfa && 
+				b <= talkingPin._beta + PApplet.PI / 2 * talkingPin._alfa) {
+				_receiving = true;
+				// If I am not already listening to other pin or have had any interference 
+				if (_receivingPin == null) {
+					_receivingPin = talkingPin;		// Ok, this pin is talking me
+					_receivedTime++; 				// Count time, to see if I can get the whole message (simulation)
+				} else {		
+					// PApplet.println(_receivingPin + " " + talkingPin);
+					// If I am listening to the same pin
+					if (_receivingPin == talkingPin) {
+						// Increase time I've been listening to message
+						_receivedTime++; 
+						// if the time I've been listening is enough to receive the whole message
+						if (_receivedTime >= talkTimeGlb) {
+							// If I have not received any other message during this message period 
+							if (talkingPin._toSendMsg != null) {
+								_receivedMsg = talkingPin._toSendMsg;
+								((Simulation) _parent).lastReceivedMsgGlb = _receivedMsg;
+								execMsg(_receivedMsg);
+								_receivedTime = 0;
+							}
+							_lastReceivedMsg = _receivedMsg;
+						}
+					} else {
+						_receivedMsg = "ERR_COLLISION";
+						((Simulation) _parent).msgCollisionsGlb++;
+					}
+				}
+			}
+		}
+	}
+
+	void execMsg(String msg) {
+		// PApplet.println("Received " + msg);
+		((Simulation) _parent).msgReceivedGlb++;	
+		String command = msg.substring(0, 3);
+		if (command.equals("COL")) {
+			// Received color, so apply (target color), and resend message
+			_targetColor = (PApplet.parseFloat(msg.substring(4, 9))) / 10000;
+			arm(msg);
+			((Simulation) _parent).colMsgNumberGlb++;
+		}
+		if (command.equals("PER")) {
+			// Received period, so apply (target period), and resend message
+			_targetColorPeriod = PApplet.parseFloat(msg.substring(4, 9)) / 10000f;
+			arm(msg);
+			((Simulation) _parent).perMsgNumberGlb++;
+		}
+		if (command.equals("SYN")) {
+			// Received sync, so apply (synchronize), and resend message
+			// after increasing sequence number (number of hops)
+			int hops = PApplet.parseInt(msg.substring(4, 9));
+			_targetAccumulator = PApplet.constrain(1.0f - hops / _parent.frameRate, 0f, 1f);
+			hops++;
+			((Simulation) _parent).maxSeqNumberGlb = 
+				(long) PApplet.max(((Simulation) _parent).maxSeqNumberGlb, hops);
+			arm("SYN_" + PApplet.nf(hops, 5, 0));
+			((Simulation) _parent).synMsgNumberGlb++;
+		}
+		if (command.equals("LON")) {
+		}
+		if (command.equals("LOF")) {
+		}
+		if (command.equals("ERR")) {
+		}
+		
+		_receivedFlashCnt = receivedFlashLengthGlb;
+		_receivedMsg = null;
+	}
+
+	void update() {
+		// Color and period follower
+		_color = _color + (_targetColor - _color) * colorChangeSpeedGlb;
+		_colorPeriod = _colorPeriod + (_targetColorPeriod - _colorPeriod) * periodChangeSpeedGlb;
+		
+		// 
+		if (_targetAccumulator > 0) {
+			if (_acummulator > 0.5) {
+				_acummulator = (1 - _acummulator) * _targetAccumulator;
+			} else {
+				_acummulator *= _targetAccumulator;
+			}
+			_targetAccumulator -= 1.0 / _parent.frameRate;
+		} else {
+			_acummulator += _colorPeriod / _parent.frameRate;
+		}
+		if (_acummulator > 1) {
+			_acummulator = 0;
+		}
+		
+		// Own initiative communication (when not repeating received message)
+		// perhaps this type of message should be more important than repeated messages
+		if (_pinTime > _nextMessageTime) {
+			if (_messageTypeToSend == 0) {
+				arm("COL_" + PApplet.nf((int) (_color * 10000), 5, 0));
+				((Simulation) _parent).colMsgNumberGlb++;
+			}
+			if (_messageTypeToSend == 1) {
+				arm("PER_"
+						+ PApplet.nf((int) (_targetColorPeriod * 10000), 5, 0));
+				((Simulation) _parent).perMsgNumberGlb++;
+			}
+			if (_messageTypeToSend == 2) {
+				arm("SYN_" + PApplet.nf((int) 0, 5, 0));
+				((Simulation) _parent).synMsgNumberGlb++;
+			}
+			
+			// Change type for the next time
+			_messageTypeToSend = (_messageTypeToSend + 1) % 3;
+			
+			// Program next talking time
+			float t = (_talkingPeriod * talkingPeriodRangeGlb + talkingPeriodMinGlb);
+			_nextMessageTime = _pinTime + (long)t;
+			
+		}
+
+		talk();
+
+		_pinTime++;
+		if (_talkTime != 0) _talkTime--;
+		if (_restTime != 0) _restTime--;
+		if (_delay != 0) 	_delay--;
+
+	}
+
+	void setPos(float x, float y) {
+		_x = x;
+		_y = y;
+	}
+
+	void setBeta(float b) {
+		_beta = b;
+	}
+
+	// void draw(float _x, float _y) {
+	void draw() {
+		_parent.pushStyle();
+
+		PVector c = new PVector(0, 0, 0);
+		float   alfaChannel = 0;
+		
+		if (((Simulation) _parent).bDrawDebug || false) {
+			
+			if (_armed) {
+				c.set(1, 1, 0);
+			}
+	
+			if (_talking) {
+				c.set(1, 0, 0);
+			}
+	
+			if (_restTime > 0) {
+				c.set(0, 1, 0);
+			}
+			
+			if (_receivedFlashCnt-- > 0) {
+				c.set(1, 1, 1);
+			}
+	
+			_parent.fill(c.x * 255, c.y * 255, c.z * 255, 150);
+			_parent.ellipse(_parent.width * _x, _parent.height * _y, 
+					_parent.width * _r * 2, _parent.width * _r * 2);
+
+			_parent.fill(255);
+			_parent.text(_receivedTime, _parent.width * _x, _parent.height * _y - 20);
+			_parent.text(_restTime, _parent.width * _x, _parent.height * _y + 20);
+
+		}
+		
+		alfaChannel = 255 * PApplet.sq(PApplet.sq((1 - 2 * PApplet.abs(_acummulator - 0.5f))));
+		c = ((Simulation) _parent).mapColor(PApplet.constrain(_color, 0, 1));
+
+		if (_talking) {
+			c.set(1, 1, 1);
+			alfaChannel = 200;
+		}
+		
+		// Contour
+		_parent.stroke(200, 10);
+		_parent.ellipseMode(PApplet.CENTER);
+
+		// Light
+		_parent.fill(c.x * 255, c.y * 255, c.z * 255, alfaChannel);
+		_parent.ellipse(_parent.width * _x, _parent.height * _y, 
+						_parent.width * _r, _parent.width * _r);
+
+		// IR active
+		if (_talking && ((Simulation) _parent).bDrawIrGlb) {
+			_parent.noFill();
+			_parent.stroke(200, 100);
+			_parent.line(_parent.width * _x, _parent.height * _y, 
+					_parent.width * _x + _parent.width * _power 
+					* PApplet.cos(_beta * PApplet.TWO_PI - PApplet.PI / 2 * _alfa), 
+					_parent.height * _y	+ _parent.width	* _power
+					* PApplet.sin(_beta * PApplet.TWO_PI - PApplet.PI / 2 * _alfa));
+			_parent.line(_parent.width * _x,	_parent.height * _y,
+					_parent.width * _x + _parent.width * _power
+					* PApplet.cos(_beta * PApplet.TWO_PI + PApplet.PI / 2 * _alfa),
+					_parent.height * _y	+ _parent.width	* _power
+					* PApplet.sin(_beta * PApplet.TWO_PI + PApplet.PI / 2 * _alfa));
+			_parent.arc(_parent.width * _x, _parent.height * _y, 
+					_parent.width * _power * 2, _parent.width * _power * 2, 
+					_beta * PApplet.TWO_PI - PApplet.PI / 2 * _alfa, 
+					_beta * PApplet.TWO_PI + PApplet.PI / 2 * _alfa);
+		}
+
+		_parent.popStyle();
+	}
+	
+	String stats() {
+		String txt = 
+				"\nColor   : " + _color +
+				"\nPower   : " + _power +
+				"\nCPeriod : " + _colorPeriod +
+				"\nTPeriod : " + _talkingPeriod +
+				"\nArmed   : " + _armed +
+				"\nTalking : " + _talking +
+				"\nSMsg    : " + _toSendMsg +
+				"\nRMsg    : " + _receivedMsg +
+				"\nLMsg    : " + _lastReceivedMsg +
+				"\nTTime   : " + _talkTime +
+				"\nRTime   : " + _restTime +
+				"\nRecTime : " + _receivedTime +
+				"\nCap     : " + _acummulator;
+		return txt;
+	}
+
 }

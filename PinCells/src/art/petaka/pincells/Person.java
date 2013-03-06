@@ -3,12 +3,13 @@ package art.petaka.pincells;
 import processing.core.*;
 
 public class Person {
+	
 	Simulation _parent;
 
 	Chromosome _expression;
 	Chromosome _desire;
 	
-	Tail _tail;
+	Tail  _tail;
 	
 	float _x, _y, _dd, _td;
 	
@@ -50,6 +51,18 @@ public class Person {
 		_pin         = new Pin(_parent, _x, _y);
 	}
 
+	Person(Simulation p, float x, float y) {
+		this(p);
+		setPos(x, y);
+	}
+	
+
+	void setPos(float x, float y) {
+		_x = x;
+		_y = y;
+		_pin.setPos(x, y);
+	}
+
 	float affinity(Person otherCell) {
 		return _desire.distance(otherCell._expression);
 	}
@@ -58,8 +71,12 @@ public class Person {
 		PVector result = new PVector(0, 0);
 		PVector inc = new PVector(0, 0);
 		
+		this._pin._receiving = false;
+		
 		for (int i = 0; i < _parent.NUM_PERSONS; i++) {
+			
 			float distance = PApplet.dist(_x, _y, _personArray[i]._x, _personArray[i]._y);
+
 			if (distance < _range) {
 				float aff = this.affinity(_personArray[i]);
 				float desiredDistance = PApplet.map(aff, 0f, (float)_expression.size(), 0.1f, 1f) / 10f; 
@@ -73,23 +90,18 @@ public class Person {
 				inc.normalize();
 				inc.mult(_td);
 				result.add(inc);
-				/*
-				_parent.stroke(255);
-				_parent.fill(255);
-				_parent.line(_x * _parent.width,  _y * _parent.height, (_x + inc.x) * _parent.width,  (_y + inc.y) * _parent.height);
-				*/
 			}
 
-			// if (this._pin._talking) println("This = " +
-			// this._pin._sendingMsg);
-			if (!_personArray[i].equals(this))
-				_personArray[i]._pin.listen(this._pin);
+			if (!_personArray[i].equals(this)) {
+				this._pin.listen(_personArray[i]._pin);
+			}
 
-			/*
-			 * if (_pin._receivedMsg != "") {
-			 * CellArrayGlb[i]._pin.arm(_pin._receivedMsg); }
-			 */
-
+		}
+		
+		if (!this._pin._receiving) {
+			this._pin._receivedMsg = null;
+			this._pin._receivedTime = 0;
+			this._pin._receivingPin = null;
 		}
 
 		/*
